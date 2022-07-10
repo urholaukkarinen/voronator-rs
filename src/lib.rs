@@ -192,8 +192,8 @@ pub struct VoronoiDiagram<C: Coord + Vector<C>> {
     ///
     /// [`Triangulation`]: ./delaunator/struct.Triangulation.html
     pub delaunay: Triangulation,
-    /// Stores the circumcenter of each triangle
-    pub centers: Vec<C>,
+    /// Stores the circumcircle of each triangle
+    pub circumcircles: Vec<Circle<C>>,
     /// Stores the coordinates of each vertex of a cell, in counter-clockwise order
     cells: Vec<Polygon<C>>,
     /// Stores the neighbor of each cell
@@ -230,15 +230,15 @@ impl<C: Coord + Vector<C>> VoronoiDiagram<C> {
 
     fn with_helper_points(points: Vec<C>, clip_polygon: &Polygon<C>, num_helper_points: usize) -> Option<Self> {
         let delaunay = triangulate(&points)?;
-        let centers = calculate_circumcenters(&points, &delaunay);
+        let circumcircles = calculate_circumcircles(&points, &delaunay);
         let cells =
-            VoronoiDiagram::calculate_polygons(&points, &centers, &delaunay, &clip_polygon);
+            VoronoiDiagram::calculate_polygons(&points, &circumcircles, &delaunay, &clip_polygon);
         let neighbors = calculate_neighbors(&points, &delaunay);
 
         Some(VoronoiDiagram {
             sites: points,
             delaunay,
-            centers,
+            circumcircles: circumcircles,
             cells,
             neighbors,
             num_helper_points,
@@ -250,7 +250,7 @@ impl<C: Coord + Vector<C>> VoronoiDiagram<C> {
     /// Points are represented here as a `(f64, f64)` tuple.
     pub fn from_tuple(min: &(f64, f64), max: &(f64, f64), coords: &[(f64, f64)]) -> Option<Self> {
         let points: Vec<C> = coords.iter().map(|p| C::from_xy(p.0, p.1)).collect();
-        
+
         let clip_points = vec![C::from_xy(min.0, min.1), C::from_xy(max.0, min.1),
         C::from_xy(max.0, max.1), C::from_xy(min.0, max.1)];
         
@@ -268,7 +268,7 @@ impl<C: Coord + Vector<C>> VoronoiDiagram<C> {
 
     fn calculate_polygons(
         points: &[C],
-        centers: &[C],
+        circumcircles: &[Circle<C>],
         delaunay: &Triangulation,
         clip_polygon: &Polygon<C>,
     ) -> Vec<Polygon<C>> {
@@ -276,7 +276,7 @@ impl<C: Coord + Vector<C>> VoronoiDiagram<C> {
             let incoming = delaunay.inedges[t];
             let edges = edges_around_point(incoming, delaunay);
             let triangles: Vec<usize> = edges.into_iter().map(triangle_of_edge).collect();
-            let polygon: Vec<C> = triangles.into_iter().map(|t| centers[t].clone()).collect();
+            let polygon: Vec<C> = triangles.into_iter().map(|t| circumcircles[t].origin.clone()).collect();
 
             let polygon = polygon::Polygon::from_points(polygon);
             let polygon = polygon::sutherland_hodgman(&polygon, &clip_polygon);
@@ -305,16 +305,16 @@ fn calculate_centroids<C: Coord + Vector<C>>(points: &[C], delaunay: &Triangulat
     centroids
 }
 
-fn calculate_circumcenters<C: Coord + Vector<C>>(points: &[C], delaunay: &Triangulation) -> Vec<C> {
+fn calculate_circumcircles<C: Coord + Vector<C>>(points: &[C], delaunay: &Triangulation) -> Vec<Circle<C>> {
     (0..delaunay.len()).into_maybe_par_iter().map(|t| {
         let v: Vec<C> = points_of_triangle(t, delaunay)
         .into_iter()
         .map(|p| points[p].clone())
         .collect();
 
-        match circumcenter(&v[0], &v[1], &v[2]) {
+        match circumcircle(&v[0], &v[1], &v[2]) {
             Some(c) => c,
-            None => C::from_xy(0., 0.)
+            None => Circle { origin: C::from_xy(0., 0.), radius: 0. }
         }
     }).collect()
 }

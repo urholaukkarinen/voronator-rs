@@ -28,7 +28,7 @@
 //!
 //! ```
 //! extern crate voronator;
-//! 
+//!
 //! use voronator::delaunator::{Point, triangulate_from_tuple};
 //!
 //! fn main() {
@@ -55,8 +55,9 @@
 //! [`hull`]: ./struct.Triangulation.html#structfield.hull
 
 
-use maybe_parallel_iterator::IntoMaybeParallelRefIterator;
 use std::{f64, fmt, usize};
+
+use maybe_parallel_iterator::IntoMaybeParallelRefIterator;
 
 /// Defines a comparison epsilon used for floating-point comparisons
 pub const EPSILON: f64 = f64::EPSILON * 2.0;
@@ -66,10 +67,10 @@ pub const INVALID_INDEX: usize = usize::max_value();
 
 /// Trait for a coordinate (point) used to generate a Voronoi diagram. The default included struct `Point` is 
 /// included below as an example.
-/// 
+///
 /// ```no_run
 /// use voronator::delaunator::{Coord, Vector};
-/// 
+///
 /// #[derive(Clone, PartialEq)]
 /// /// Represents a point in the 2D space.
 /// pub struct Point {
@@ -97,8 +98,8 @@ pub const INVALID_INDEX: usize = usize::max_value();
 ///
 /// impl Vector<Point> for Point {}
 /// ```
-/// 
-pub trait Coord : Sync + Send + Clone {
+///
+pub trait Coord: Sync + Send + Clone {
     /// Create a coordinate from (x, y) positions
     fn from_xy(x: f64, y: f64) -> Self;
     /// Return x coordinate
@@ -113,11 +114,11 @@ pub trait Coord : Sync + Send + Clone {
 }
 
 /// Trait implementing basic vector functions for a `Coord`.
-/// 
+///
 /// To implement this trait, it is possible to simply:
 /// `impl Vector<Point> for Point {}`
 pub trait Vector<C: Coord> {
-    /// 
+    ///
     fn vector(p: &C, q: &C) -> C {
         C::from_xy(q.x() - p.x(), q.y() - p.y())
     }
@@ -139,11 +140,18 @@ pub trait Vector<C: Coord> {
         (p.x() - q.x()).abs() <= EPSILON && (p.y() - q.y()).abs() <= EPSILON
     }
 
-    /// 
+    ///
     fn equals_with_span(p: &C, q: &C, span: f64) -> bool {
         let dist = Self::dist2(p, q) / span;
         dist < 1e-20 // dunno about this
     }
+}
+
+/// Represents a circle in the 2D space.
+#[derive(Clone, PartialEq)]
+pub struct Circle<C: Coord> {
+    pub origin: C,
+    pub radius: f64,
 }
 
 #[derive(Clone, PartialEq)]
@@ -159,7 +167,7 @@ impl Coord for Point {
     // Inline these methods as otherwise we incur a heavy performance penalty
     #[inline(always)]
     fn from_xy(x: f64, y: f64) -> Self {
-        Point{x, y}
+        Point { x, y }
     }
     #[inline(always)]
     fn x(&self) -> f64 {
@@ -196,9 +204,9 @@ fn in_circle<C: Coord + Vector<C>>(p: &C, a: &C, b: &C, c: &C) -> bool {
     let cp = f.x() * f.x() + f.y() * f.y();
 
     #[rustfmt::skip]
-    let res = d.x() * (e.y() * cp  - bp  * f.y()) -
-                   d.y() * (e.x() * cp  - bp  * f.x()) +
-                   ap  * (e.x() * f.y() - e.y() * f.x()) ;
+        let res = d.x() * (e.y() * cp - bp * f.y()) -
+        d.y() * (e.x() * cp - bp * f.x()) +
+        ap * (e.x() * f.y() - e.y() * f.x());
 
     res < 0.0
 }
@@ -216,8 +224,8 @@ fn circumradius<C: Coord + Vector<C>>(a: &C, b: &C, c: &C) -> f64 {
     let y = (d.x() * cl - e.x() * bl) * (0.5 / det);
 
     if (bl != 0.0) &&
-       (cl != 0.0) &&
-       (det != 0.0) {
+        (cl != 0.0) &&
+        (det != 0.0) {
         x * x + y * y
     } else {
         f64::MAX
@@ -232,7 +240,7 @@ fn circumradius<C: Coord + Vector<C>>(a: &C, b: &C, c: &C) -> f64 {
 /// * `b` - The second vertex of the triangle
 /// * `c` - The third vertex of the triangle
 #[rustfmt::skip]
-pub fn circumcenter<C: Coord + Vector<C>>(a: &C, b: &C, c: &C) -> Option<C> {
+pub fn circumcircle<C: Coord + Vector<C>>(a: &C, b: &C, c: &C) -> Option<Circle<C>> {
     let d = C::vector(a, b);
     let e = C::vector(a, c);
 
@@ -242,14 +250,17 @@ pub fn circumcenter<C: Coord + Vector<C>>(a: &C, b: &C, c: &C) -> Option<C> {
 
     let x = (e.y() * bl - d.y() * cl) * (0.5 / det);
     let y = (d.x() * cl - e.x() * bl) * (0.5 / det);
+    let radius = (x.powi(2) + y.powi(2)).sqrt();
 
     if (bl != 0.0) &&
-       (cl != 0.0) &&
-       (det != 0.0) {
-        Some(C::from_xy(
-            a.x() + x,
-            a.y() + y)
-        )
+        (cl != 0.0) &&
+        (det != 0.0) {
+        Some(Circle {
+            origin: C::from_xy(
+                a.x() + x,
+                a.y() + y),
+            radius,
+        })
     } else {
         None
     }
@@ -830,7 +841,7 @@ pub fn triangulate<C: Coord + Vector<C>>(points: &[C]) -> Option<Triangulation> 
     let p1 = &points[i1];
     let p2 = &points[i2];
 
-    let center = circumcenter(p0, p1, p2).unwrap();
+    let center = circumcircle(p0, p1, p2).unwrap();
 
     //eprintln!("calculating dists...");
 
@@ -839,14 +850,14 @@ pub fn triangulate<C: Coord + Vector<C>>(points: &[C]) -> Option<Triangulation> 
     let mut dists: Vec<(usize, f64)> = points
         .maybe_par_iter()
         .enumerate()
-        .map(|(i, _)| (i, C::dist2(&points[i], &center)))
+        .map(|(i, _)| (i, C::dist2(&points[i], &center.origin)))
         .collect();
 
     // sort the points by distance from the seed triangle circumcenter
     dists.sort_unstable_by(|(_, a), (_, b)| a.partial_cmp(&b).unwrap());
 
     //eprintln!("creating hull...");
-    let mut hull = Hull::new(points.len(), &center, i0, i1, i2, points);
+    let mut hull = Hull::new(points.len(), &center.origin, i0, i1, i2, points);
 
     //eprintln!("calculating triangulation...");
     let mut triangulation = Triangulation::new(points.len());
